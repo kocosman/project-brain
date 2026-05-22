@@ -2,6 +2,36 @@ from pathlib import Path
 from core.llm import ask_ollama
 from core.storage import list_projects, list_meetings
 
+SYSTEM_MEMORY = (
+    "You are answering questions about a project based on its meeting history. "
+    "Answer only from the summaries provided. If the answer isn't in the summaries, "
+    "say so clearly — do not guess. Cite which meeting the information comes from when relevant."
+)
+
+PROMPT_RECAP = """
+You are reviewing all meeting summaries for a project.
+Write a concise project recap covering:
+
+- What this project is about
+- Key decisions made so far (most recent first)
+- Outstanding action items
+- Open questions or unresolved threads
+- Current momentum / where things stand
+
+Be direct. This recap will be read at the start of a new meeting.
+Keep it under 400 words.
+
+Meeting summaries (oldest to newest):
+{all_summaries}
+"""
+
+PROMPT_QA = """
+Meeting summaries:
+{all_summaries}
+
+Question: {question}
+"""
+
 
 def _iter_summaries(projects_folder):
     for project_name in list_projects(projects_folder):
@@ -62,16 +92,9 @@ def recap_project(project_path, model="llama3.2"):
     if not summaries:
         return "No summaries found for this project."
 
-    context = "\n\n---\n\n".join(summaries)
-    prompt = (
-        "Given these meeting summaries, write a cohesive project recap covering:\n"
-        "- What has been accomplished\n"
-        "- What is in progress\n"
-        "- Open questions and blockers\n"
-        "- Overall trajectory\n\n"
-        f"Meeting summaries:\n{context}"
-    )
-    return ask_ollama(prompt, system="You are a project manager summarizing project history.", model=model)
+    all_summaries = "\n\n---\n\n".join(summaries)
+    prompt = PROMPT_RECAP.format(all_summaries=all_summaries)
+    return ask_ollama(prompt, system=SYSTEM_MEMORY, model=model)
 
 
 def qa(projects_folder, question, model="llama3.2", project_filter=None):
@@ -82,11 +105,8 @@ def qa(projects_folder, question, model="llama3.2", project_filter=None):
     if not entries:
         return "No meeting data found to answer from."
 
-    context = "\n\n---\n\n".join(
+    all_summaries = "\n\n---\n\n".join(
         f"[{e['project']} / {e['meeting']}]\n{e['summary']}" for e in entries
     )
-    system = (
-        "You answer questions based only on the provided meeting notes. "
-        "If the answer is not in the notes, say so clearly."
-    )
-    return ask_ollama(f"Context:\n{context}\n\nQuestion: {question}", system=system, model=model)
+    prompt = PROMPT_QA.format(all_summaries=all_summaries, question=question)
+    return ask_ollama(prompt, system=SYSTEM_MEMORY, model=model)
