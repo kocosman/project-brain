@@ -2,35 +2,16 @@ from pathlib import Path
 from core.llm import ask_ollama
 from core.storage import list_projects, list_meetings
 
-SYSTEM_MEMORY = (
-    "You are answering questions about a project based on its meeting history. "
-    "Answer only from the summaries provided. If the answer isn't in the summaries, "
-    "say so clearly — do not guess. Cite which meeting the information comes from when relevant."
-)
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
-PROMPT_RECAP = """
-You are reviewing all meeting summaries for a project.
-Write a concise project recap covering:
 
-- What this project is about
-- Key decisions made so far (most recent first)
-- Outstanding action items
-- Open questions or unresolved threads
-- Current momentum / where things stand
+def _load(name):
+    return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
 
-Be direct. This recap will be read at the start of a new meeting.
-Keep it under 400 words.
 
-Meeting summaries (oldest to newest):
-{all_summaries}
-"""
-
-PROMPT_QA = """
-Meeting summaries:
-{all_summaries}
-
-Question: {question}
-"""
+SYSTEM_MEMORY = _load("system_memory.md")
+PROMPT_RECAP  = _load("recap.md")
+PROMPT_QA     = _load("qa.md")
 
 
 def _iter_summaries(projects_folder):
@@ -82,7 +63,7 @@ def search(projects_folder, query):
     return results
 
 
-def recap_project(project_path, model="llama3.2"):
+def recap_project(project_path, model="llama3.1:8b"):
     summaries = []
     for meeting_folder in list_meetings(Path(project_path)):
         sf = meeting_folder / "summary.md"
@@ -92,12 +73,11 @@ def recap_project(project_path, model="llama3.2"):
     if not summaries:
         return "No summaries found for this project."
 
-    all_summaries = "\n\n---\n\n".join(summaries)
-    prompt = PROMPT_RECAP.format(all_summaries=all_summaries)
+    prompt = PROMPT_RECAP.format(all_summaries="\n\n---\n\n".join(summaries))
     return ask_ollama(prompt, system=SYSTEM_MEMORY, model=model)
 
 
-def qa(projects_folder, question, model="llama3.2", project_filter=None):
+def qa(projects_folder, question, model="llama3.1:8b", project_filter=None):
     entries = list(_iter_summaries(projects_folder))
     if project_filter:
         entries = [e for e in entries if e["project"] == project_filter]
