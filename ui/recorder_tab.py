@@ -74,10 +74,9 @@ class RecorderTab(ctk.CTkFrame):
         ctk.CTkLabel(r2, text="Name:", width=48, anchor="w").pack(side="left")
         self._name_var = tk.StringVar(value=datetime.date.today().strftime("%Y-%m-%d"))
         ctk.CTkEntry(r2, textvariable=self._name_var, width=180).pack(side="left", padx=(0, 12))
-        ctk.CTkLabel(r2, text="Speakers:", width=68, anchor="w").pack(side="left")
-        self._speakers_var = tk.StringVar(value="1")
-        ctk.CTkOptionMenu(r2, values=[str(i) for i in range(1, 9)],
-                          variable=self._speakers_var, width=58).pack(side="left")
+        self._diarize_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(r2, text="Identify speakers",
+                        variable=self._diarize_var).pack(side="left")
 
         # record row
         rec = ctk.CTkFrame(self)
@@ -212,13 +211,11 @@ class RecorderTab(ctk.CTkFrame):
                 wf.setframerate(SAMPLE_RATE)
                 wf.writeframes(audio.tobytes())
 
-            num_speakers = int(self._speakers_var.get())
-            hf_token = self.settings.get("hf_token", "")
             text, words, speaker_runs = transcribe(
                 tmp,
                 model_size=self.settings.get("whisper_model_size", "base"),
-                num_speakers=num_speakers,
-                hf_token=hf_token,
+                diarize=self._diarize_var.get(),
+                hf_token=self.settings.get("hf_token", ""),
             )
             os.unlink(tmp)
             self.after(0, self._show_transcript, text, words, speaker_runs)
@@ -378,7 +375,7 @@ class RecorderTab(ctk.CTkFrame):
             "project": project,
             "meeting_name": raw_name,
             "meeting_type": self._type_var.get(),
-            "speakers": int(self._speakers_var.get()),
+            "diarized": self._diarize_var.get(),
             "date": datetime.datetime.now().isoformat(),
         }
         saved = save_meeting(

@@ -27,7 +27,15 @@ def preload(size="base"):
     _get_model(size)
 
 
-def transcribe(audio_path, model_size="base", num_speakers=1, hf_token=""):
+def _load_wav(path):
+    import wave as _wave
+    import numpy as _np
+    with _wave.open(path, "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+    return _np.frombuffer(frames, dtype=_np.int16).astype(_np.float32) / 32768.0
+
+
+def transcribe(audio_path, model_size="base", diarize=False, hf_token=""):
     """
     Returns (text, words, speaker_runs).
     speaker_runs is a list of {"speaker": "SPEAKER_00", "text": "..."} when
@@ -36,7 +44,7 @@ def transcribe(audio_path, model_size="base", num_speakers=1, hf_token=""):
     import whisperx
 
     model = _get_model(model_size)
-    audio = whisperx.load_audio(audio_path)
+    audio = _load_wav(audio_path)  # avoids ffmpeg dependency
 
     result = model.transcribe(audio, batch_size=4)
     language = result.get("language", "en")
@@ -53,15 +61,12 @@ def transcribe(audio_path, model_size="base", num_speakers=1, hf_token=""):
 
     segments = result.get("segments", [])
 
-    # diarize when multiple speakers and token provided
-    if num_speakers >= 2 and hf_token:
+    if diarize and hf_token:
         try:
             diarize_model = whisperx.DiarizationPipeline(
                 use_auth_token=hf_token, device=DEVICE
             )
-            diarize_segs = diarize_model(
-                audio, min_speakers=num_speakers, max_speakers=num_speakers
-            )
+            diarize_segs = diarize_model(audio)  # auto-detect speaker count
             result = whisperx.assign_word_speakers(diarize_segs, result)
             segments = result.get("segments", [])
             return _build_diarized(segments)
