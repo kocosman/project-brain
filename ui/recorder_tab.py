@@ -76,7 +76,9 @@ class RecorderTab(ctk.CTkFrame):
         ctk.CTkEntry(r2, textvariable=self._name_var, width=180).pack(side="left", padx=(0, 12))
         self._diarize_var = tk.BooleanVar(value=False)
         ctk.CTkCheckBox(r2, text="Identify speakers",
-                        variable=self._diarize_var).pack(side="left")
+                        variable=self._diarize_var).pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(r2, text="(requires HF token in Settings)",
+                     font=ctk.CTkFont(size=10), text_color="gray40").pack(side="left")
 
         # record row
         rec = ctk.CTkFrame(self)
@@ -99,9 +101,16 @@ class RecorderTab(ctk.CTkFrame):
         self._speaker_frame = ctk.CTkFrame(self)
         self._speaker_frame.pack(fill="x", padx=6, pady=0)
 
-        # transcript
-        ctk.CTkLabel(self, text="TRANSCRIPT", font=ctk.CTkFont(size=10),
-                     text_color="gray").pack(anchor="w", padx=8, pady=(6, 0))
+        # transcript header with confidence legend
+        trans_hdr = ctk.CTkFrame(self, fg_color="transparent")
+        trans_hdr.pack(fill="x", padx=8, pady=(6, 0))
+        ctk.CTkLabel(trans_hdr, text="TRANSCRIPT", font=ctk.CTkFont(size=10),
+                     text_color="gray").pack(side="left")
+        ctk.CTkLabel(trans_hdr, text="  ● normal",
+                     font=ctk.CTkFont(size=10), text_color="#f0f0f0").pack(side="left", padx=(12, 0))
+        ctk.CTkLabel(trans_hdr, text="  ● low confidence",
+                     font=ctk.CTkFont(size=10), text_color="#ff9900").pack(side="left")
+
         self._transcript = tk.Text(self, height=7, **TXT_STYLE)
         self._transcript.pack(fill="both", expand=True, padx=6, pady=(2, 2))
         self._transcript.insert("1.0", "Record a meeting — transcript appears here.")
@@ -267,37 +276,40 @@ class RecorderTab(ctk.CTkFrame):
             if r["speaker"] not in unique_speakers:
                 unique_speakers.append(r["speaker"])
 
-        # load known people for this project
+        # load known people for autocomplete
         known = []
         project = self._project_var.get()
         if project and not project.startswith("(no"):
             path = Path(self.settings["projects_folder"]) / project
             known = list(load_people(str(path)).keys())
 
-        # header
-        hdr = ctk.CTkFrame(self._speaker_frame, fg_color="transparent")
-        hdr.pack(fill="x", padx=8, pady=(6, 2))
-        ctk.CTkLabel(hdr, text="NAME SPEAKERS",
-                     font=ctk.CTkFont(size=10), text_color="gray").pack(side="left")
-        if known:
-            ctk.CTkLabel(hdr, text=f"  known: {', '.join(known)}",
-                         font=ctk.CTkFont(size=10), text_color="gray40").pack(side="left")
+        # colored panel so it's unmissable
+        inner = ctk.CTkFrame(self._speaker_frame, fg_color="#2a2a1a", corner_radius=8)
+        inner.pack(fill="x", padx=6, pady=(4, 6))
 
-        # one entry per speaker
-        entries_row = ctk.CTkFrame(self._speaker_frame, fg_color="transparent")
-        entries_row.pack(fill="x", padx=8, pady=(0, 8))
+        ctk.CTkLabel(inner, text="👤  NAME THE SPEAKERS",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color="#e8ff47").pack(anchor="w", padx=12, pady=(8, 4))
+
+        ctk.CTkLabel(inner, text="Type or select a name for each detected speaker, then click Apply.",
+                     font=ctk.CTkFont(size=10), text_color="gray").pack(anchor="w", padx=12, pady=(0, 6))
+
+        entries_row = ctk.CTkFrame(inner, fg_color="transparent")
+        entries_row.pack(fill="x", padx=12, pady=(0, 10))
 
         self._speaker_entries = {}
         for label in unique_speakers:
-            ctk.CTkLabel(entries_row, text=label, width=100,
-                         font=ctk.CTkFont(size=11), anchor="w").pack(side="left", padx=(0, 4))
-            combo = ctk.CTkComboBox(entries_row, values=known, width=140)
+            ctk.CTkLabel(entries_row, text=label, width=110,
+                         font=ctk.CTkFont(size=11), anchor="w",
+                         text_color="gray").pack(side="left", padx=(0, 4))
+            combo = ctk.CTkComboBox(entries_row, values=known, width=150)
             combo.set("")
             combo.pack(side="left", padx=(0, 16))
             self._speaker_entries[label] = combo
 
-        ctk.CTkButton(entries_row, text="Apply Names", width=110,
-                      command=self._apply_names).pack(side="left")
+        ctk.CTkButton(entries_row, text="Apply Names",
+                      fg_color="#4a7a2a", hover_color="#5a9a32",
+                      width=120, command=self._apply_names).pack(side="left")
 
     def _apply_names(self):
         mapping = {label: combo.get().strip()
