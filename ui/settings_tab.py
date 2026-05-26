@@ -52,6 +52,20 @@ class SettingsTab(ctk.CTkFrame):
         ctk.CTkButton(model_row, text="Refresh list", width=110,
                       command=self._refresh_models).pack(side="left")
 
+        # ── HuggingFace ──
+        hf = self._section("HuggingFace (Speaker Diarization)")
+
+        hf_row = self._row(hf)
+        ctk.CTkLabel(hf_row, text="Token:", width=100, anchor="w").pack(side="left")
+        self._hf_var = tk.StringVar(value=self.settings.get("hf_token", ""))
+        ctk.CTkEntry(hf_row, textvariable=self._hf_var, width=300, show="*").pack(side="left", padx=(0, 8))
+        ctk.CTkButton(hf_row, text="Show/Hide", width=90,
+                      command=self._toggle_token_visibility).pack(side="left")
+        self._hf_entry_ref = hf_row.winfo_children()[1]
+
+        ctk.CTkLabel(hf, text="Required to identify speakers. Accept terms at hf.co/pyannote/speaker-diarization-3.1",
+                     text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=12, pady=(0, 8))
+
         # ── Whisper ──
         whisper = self._section("Whisper (Speech-to-Text)")
 
@@ -110,6 +124,10 @@ class SettingsTab(ctk.CTkFrame):
                     self.after(0, lambda: self._model_var.set(models[0]))
         threading.Thread(target=_fetch, daemon=True).start()
 
+    def _toggle_token_visibility(self):
+        entry = self._hf_entry_ref
+        entry.configure(show="" if entry.cget("show") == "*" else "*")
+
     def _browse_folder(self):
         chosen = filedialog.askdirectory(title="Choose projects folder",
                                           initialdir=self._projects_var.get())
@@ -122,6 +140,7 @@ class SettingsTab(ctk.CTkFrame):
             "whisper_model_size": self._whisper_var.get(),
             "projects_folder": self._projects_var.get().strip(),
             "default_meeting_type": self._mt_var.get(),
+            "hf_token": self._hf_var.get().strip(),
         }
         self.on_save(new)
         if self._saved_lbl:

@@ -7,7 +7,8 @@ DEFAULTS = {
     "projects_folder": str(Path.home() / "Documents" / "ProjectBrain" / "projects"),
     "whisper_model_size": "base",
     "default_meeting_type": "General",
-    "ollama_model": "llama3.2",
+    "ollama_model": "llama3.1:8b",
+    "hf_token": "",
 }
 
 

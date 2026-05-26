@@ -31,6 +31,22 @@ def save_meeting(project_path, meeting_name, transcript, summary, meta):
     return folder
 
 
+def load_people(project_path):
+    f = Path(project_path) / "people.json"
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_people(project_path, people):
+    f = Path(project_path) / "people.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(people, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def load_meeting(meeting_path):
     folder = Path(meeting_path)
     result = {}
