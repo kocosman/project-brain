@@ -63,7 +63,12 @@ class SettingsTab(ctk.CTkFrame):
                       command=self._toggle_token_visibility).pack(side="left")
         self._hf_entry_ref = hf_row.winfo_children()[1]
 
-        ctk.CTkLabel(hf, text="Required to identify speakers. Accept terms at hf.co/pyannote/speaker-diarization-3.1",
+        diarize_row = self._row(hf)
+        self._diarize_var = tk.BooleanVar(value=self.settings.get("diarize", True))
+        ctk.CTkCheckBox(diarize_row, text="Identify speakers by default",
+                        variable=self._diarize_var).pack(side="left")
+
+        ctk.CTkLabel(hf, text="Requires HF token above. Accept terms at hf.co/pyannote/speaker-diarization-3.1",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w", padx=12, pady=(0, 8))
 
         # ── Whisper ──
@@ -141,6 +146,7 @@ class SettingsTab(ctk.CTkFrame):
             "projects_folder": self._projects_var.get().strip(),
             "default_meeting_type": self._mt_var.get(),
             "hf_token": self._hf_var.get().strip(),
+            "diarize": self._diarize_var.get(),
         }
         self.on_save(new)
         if self._saved_lbl:

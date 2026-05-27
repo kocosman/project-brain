@@ -76,11 +76,6 @@ class RecorderTab(ctk.CTkFrame):
         ctk.CTkLabel(r2, text="Name:", width=48, anchor="w").pack(side="left")
         self._name_var = tk.StringVar(value=datetime.date.today().strftime("%Y-%m-%d"))
         ctk.CTkEntry(r2, textvariable=self._name_var, width=180).pack(side="left", padx=(0, 12))
-        self._diarize_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(r2, text="Identify speakers",
-                        variable=self._diarize_var).pack(side="left", padx=(0, 4))
-        ctk.CTkLabel(r2, text="(requires HF token in Settings)",
-                     font=ctk.CTkFont(size=10), text_color="gray40").pack(side="left")
 
         # record row
         rec = ctk.CTkFrame(self)
@@ -230,7 +225,7 @@ class RecorderTab(ctk.CTkFrame):
             text, words, speaker_runs = transcribe(
                 tmp,
                 model_size=self.settings.get("whisper_model_size", "base"),
-                diarize=self._diarize_var.get(),
+                diarize=self.settings.get("diarize", True),
                 hf_token=self.settings.get("hf_token", ""),
             )
             os.unlink(tmp)

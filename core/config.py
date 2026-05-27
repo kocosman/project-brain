@@ -9,6 +9,7 @@ DEFAULTS = {
     "default_meeting_type": "General",
     "ollama_model": "llama3.1:8b",
     "hf_token": "",
+    "diarize": True,
 }
 
 
