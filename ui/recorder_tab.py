@@ -38,6 +38,8 @@ class RecorderTab(ctk.CTkFrame):
         self._words = []
         self._speaker_runs = None
         self._speaker_entries = {}
+        self._last_audio = None   # numpy int16 array kept for playback + save
+        self._playing = False
 
         self._build_ui()
         self._refresh_projects()
@@ -144,6 +146,10 @@ class RecorderTab(ctk.CTkFrame):
                                           fg_color="gray30", hover_color="gray40",
                                           command=self._export_pdf, state="disabled")
         self._export_btn.pack(side="right", padx=(4, 2))
+        self._play_btn = ctk.CTkButton(bot, text="▶ Play Recording", width=130,
+                                        fg_color="gray30", hover_color="gray40",
+                                        command=self._toggle_playback, state="disabled")
+        self._play_btn.pack(side="right", padx=(4, 2))
         ctk.CTkButton(bot, text="Clear", width=80,
                       fg_color="gray30", hover_color="gray40",
                       command=self._clear).pack(side="right", padx=(4, 2))
@@ -212,6 +218,7 @@ class RecorderTab(ctk.CTkFrame):
     def _run_transcribe(self):
         try:
             audio = np.concatenate(self.audio_frames, axis=0)
+            self._last_audio = audio  # keep for playback and save
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 tmp = f.name
             with wave.open(tmp, "wb") as wf:
@@ -251,6 +258,7 @@ class RecorderTab(ctk.CTkFrame):
         self._timer_lbl.configure(text="00:00")
         self._sum_btn.configure(state="normal")
         self._save_btn.configure(state="normal")
+        self._play_btn.configure(state="normal")
 
     def _highlight_low_conf(self, text, words):
         self._transcript.tag_remove("low_conf", "1.0", "end")
@@ -343,6 +351,27 @@ class RecorderTab(ctk.CTkFrame):
             w.destroy()
         self._speaker_entries = {}
 
+    # ── playback ──────────────────────────────────────────────────────────────
+    def _toggle_playback(self):
+        if self._playing:
+            sd.stop()
+            self._playing = False
+            self._play_btn.configure(text="▶ Play Recording")
+        else:
+            if self._last_audio is None:
+                return
+            self._playing = True
+            self._play_btn.configure(text="■ Stop")
+            def _play():
+                sd.play(self._last_audio, samplerate=SAMPLE_RATE)
+                sd.wait()
+                self.after(0, self._on_playback_done)
+            threading.Thread(target=_play, daemon=True).start()
+
+    def _on_playback_done(self):
+        self._playing = False
+        self._play_btn.configure(text="▶ Play Recording")
+
     # ── summarize ─────────────────────────────────────────────────────────────
     def _do_summarize(self):
         transcript = self._transcript.get("1.0", "end").strip()
@@ -394,6 +423,15 @@ class RecorderTab(ctk.CTkFrame):
             Path(self.settings["projects_folder"]) / project,
             folder_name, transcript, summary, meta,
         )
+        # save audio alongside transcript if available
+        if self._last_audio is not None:
+            audio_path = saved / "recording.wav"
+            with wave.open(str(audio_path), "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(self._last_audio.tobytes())
+
         self._set_status(f"SAVED → {saved.name}", "#e8ff47")
         messagebox.showinfo("Saved", f"Meeting saved to:\n{saved}")
 
@@ -436,9 +474,12 @@ class RecorderTab(ctk.CTkFrame):
         self._sum_btn.configure(state="disabled")
         self._save_btn.configure(state="disabled")
         self._export_btn.configure(state="disabled")
+        self._play_btn.configure(state="disabled", text="▶ Play Recording")
         self._sum_status.configure(text="")
         self._words = []
         self._speaker_runs = None
+        self._last_audio = None
+        self._playing = False
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _set_status(self, msg, color="gray"):

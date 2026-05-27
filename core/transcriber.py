@@ -1,106 +1,97 @@
-_model = None
-_model_size = None
-_align_models = {}  # language -> (model_a, metadata)
+_fw_model = None
+_fw_model_size = None
 
-DEVICE = "cpu"
-COMPUTE_TYPE = "int8"
+SAMPLE_RATE = 16000
 
 
-def _get_model(size="base"):
-    global _model, _model_size
-    import whisperx
-    if _model is None or _model_size != size:
-        _model = whisperx.load_model(size, device=DEVICE, compute_type=COMPUTE_TYPE)
-        _model_size = size
-    return _model
-
-
-def _get_aligner(language):
-    import whisperx
-    if language not in _align_models:
-        model_a, meta = whisperx.load_align_model(language_code=language, device=DEVICE)
-        _align_models[language] = (model_a, meta)
-    return _align_models[language]
+def _get_fw_model(size="base"):
+    global _fw_model, _fw_model_size
+    if _fw_model is None or _fw_model_size != size:
+        from faster_whisper import WhisperModel
+        _fw_model = WhisperModel(size, device="cpu", compute_type="int8")
+        _fw_model_size = size
+    return _fw_model
 
 
 def preload(size="base"):
-    _get_model(size)
-
-
-def _load_wav(path):
-    import wave as _wave
-    import numpy as _np
-    with _wave.open(path, "rb") as wf:
-        frames = wf.readframes(wf.getnframes())
-    return _np.frombuffer(frames, dtype=_np.int16).astype(_np.float32) / 32768.0
+    _get_fw_model(size)
 
 
 def transcribe(audio_path, model_size="base", diarize=False, hf_token=""):
     """
     Returns (text, words, speaker_runs).
-    speaker_runs is a list of {"speaker": "SPEAKER_00", "text": "..."} when
-    diarization ran, else None.
+    speaker_runs is a list of {"speaker": "SPEAKER_0", "text": "..."} or None.
     """
-    import whisperx
+    model = _get_fw_model(model_size)
+    segments_iter, _ = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
 
-    model = _get_model(model_size)
-    audio = _load_wav(audio_path)  # avoids ffmpeg dependency
-
-    result = model.transcribe(audio, batch_size=4)
-    language = result.get("language", "en")
-
-    # align for word-level timestamps
-    try:
-        model_a, meta = _get_aligner(language)
-        result = whisperx.align(
-            result["segments"], model_a, meta, audio,
-            device=DEVICE, return_char_alignments=False,
-        )
-    except Exception:
-        pass
-
-    segments = result.get("segments", [])
+    segments = []
+    all_words = []
+    for seg in segments_iter:
+        seg_words = []
+        for w in (seg.words or []):
+            wd = {
+                "word": w.word,
+                "start": w.start,
+                "end": w.end,
+                "probability": w.probability,
+            }
+            seg_words.append(wd)
+            all_words.append(wd)
+        segments.append({
+            "text": seg.text.strip(),
+            "start": seg.start,
+            "end": seg.end,
+            "words": seg_words,
+        })
 
     if diarize and hf_token:
-        try:
-            diarize_model = whisperx.DiarizationPipeline(
-                use_auth_token=hf_token, device=DEVICE
-            )
-            diarize_segs = diarize_model(audio)  # auto-detect speaker count
-            result = whisperx.assign_word_speakers(diarize_segs, result)
-            segments = result.get("segments", [])
-            return _build_diarized(segments)
-        except Exception:
-            pass  # fall through to plain
+        import torch
+        import numpy as np
+        import wave as _wave
+        from pyannote.audio import Pipeline as PyannotePipeline
 
-    text = " ".join(s["text"].strip() for s in segments)
-    words = _extract_words(segments)
-    return text, words, None
+        # load audio as float32 tensor — avoids ffmpeg
+        with _wave.open(audio_path, "rb") as wf:
+            raw = wf.readframes(wf.getnframes())
+        audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        audio_tensor = torch.tensor(audio_np).unsqueeze(0)  # (1, time)
 
+        pipeline = PyannotePipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            token=hf_token,
+        )
+        output = pipeline({"waveform": audio_tensor, "sample_rate": SAMPLE_RATE})
 
-def _build_diarized(segments):
-    runs = []
-    for seg in segments:
-        speaker = seg.get("speaker", "SPEAKER_?")
-        text = seg["text"].strip()
-        if runs and runs[-1]["speaker"] == speaker:
-            runs[-1]["text"] += " " + text
-        else:
-            runs.append({"speaker": speaker, "text": text})
+        # newer pyannote wraps result in DiarizeOutput
+        annotation = getattr(output, "speaker_diarization", output)
 
-    text = "\n".join(f"{r['speaker']}: {r['text']}" for r in runs)
-    words = _extract_words(segments)
-    return text, words, runs
+        # build speaker ranges from pyannote Annotation
+        speaker_ranges = [
+            (seg.start, seg.end, label)
+            for seg, _, label in annotation.itertracks(yield_label=True)
+        ]
 
+        def speaker_at(t):
+            for start, end, lbl in speaker_ranges:
+                if start <= t <= end:
+                    return lbl
+            if not speaker_ranges:
+                return "SPEAKER_0"
+            return min(speaker_ranges, key=lambda r: abs((r[0] + r[1]) / 2 - t))[2]
 
-def _extract_words(segments):
-    words = []
-    for seg in segments:
-        for w in seg.get("words", []):
-            words.append({
-                "word": w.get("word", ""),
-                "start": w.get("start", 0),
-                "end": w.get("end", 0),
-                "probability": w.get("score", 1.0),
-            })
-    return words
+        # assign speaker to each segment
+        runs = []
+        for seg in segments:
+            mid = (seg["start"] + seg["end"]) / 2
+            spk = speaker_at(mid)
+            if runs and runs[-1]["speaker"] == spk:
+                runs[-1]["text"] += " " + seg["text"]
+            else:
+                runs.append({"speaker": spk, "text": seg["text"]})
+
+        text = "\n".join(f"{r['speaker']}: {r['text']}" for r in runs)
+        return text, all_words, runs
+
+    text = " ".join(s["text"] for s in segments)
+    return text, all_words, None

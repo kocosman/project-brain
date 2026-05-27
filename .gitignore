@@ -12,7 +12,7 @@ build/
 /projects/
 settings.json
 
-# Audio temp files
+# Audio files
 *.wav
 *.mp3
 
